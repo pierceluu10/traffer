@@ -1,0 +1,68 @@
+name: Kubera CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+      - name: Run coverage
+        run: |
+          pip install pytest-cov
+          pytest tests/ --cov=api --cov=model --cov=mlops --cov-report=term-missing --cov-fail-under=95
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t kubera:${{ github.sha }} .
+
+      - name: Tag latest
+        run: docker tag kubera:${{ github.sha }} kubera:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Minikube
+        uses: medyagh/setup-minikube@latest
+
+      - name: Build image in Minikube
+        run: |
+          eval $(minikube docker-env)
+          docker build -t kubera:latest .
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl rollout status deployment/kubera --timeout=120s
+
+      - name: Verify deployment
+        run: |
+          kubectl get pods
+          kubectl get services
