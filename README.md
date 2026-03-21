@@ -42,6 +42,7 @@ End-to-end ML deployment pipeline. Fine-tuned a Faster R-CNN object detection mo
 - Pytest 8.0
 - Docker (multi-stage builds)
 - Kubernetes / Minikube
+- OpenCV 4.9 (real-time webcam detection)
 - GitHub Actions
 
 ## Docker Image Optimization
@@ -74,6 +75,16 @@ uvicorn api.main:app --reload
 curl -X POST "http://localhost:8000/detect" -F "file=@test_image.jpg"
 curl http://localhost:8000/health
 ```
+
+## Real-Time Webcam Detection
+
+```bash
+python webcam.py
+```
+
+Opens your webcam and runs Faster R-CNN inference on each frame. Detected objects get bounding boxes with labels and confidence scores drawn in real time. Press `q` to quit.
+
+The first frame takes a few seconds while the model loads. After that, inference runs continuously. Works with any USB or built-in webcam.
 
 ## Build and Run with Docker
 
@@ -147,6 +158,7 @@ kubera/
 │   └── service.yaml
 ├── .github/workflows/
 │   └── ci-cd.yaml
+├── webcam.py                  # Real-time webcam object detection
 ├── Dockerfile
 ├── requirements.txt
 └── setup.cfg
