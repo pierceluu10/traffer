@@ -1,5 +1,7 @@
 # kubera
 
+Name inspired by k8s.
+
 End-to-end ML deployment pipeline. Fine-tuned a Faster R-CNN object detection model on Pascal VOC, served it as a FastAPI REST API, containerized with Docker multi-stage builds, deployed on Kubernetes (Minikube), and automated the full build-test-deploy cycle with GitHub Actions.
 
 ## Architecture
