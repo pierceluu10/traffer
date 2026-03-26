@@ -1,10 +1,9 @@
 # kubera
 
-<<<<<<< HEAD
-Name inspired by minikube.
 
+Name inspired by minikube.
 Smart city traffic monitoring and MLOps pipeline. A Faster R-CNN object detection model powers a real-time video processing system that detects vehicles and pedestrians, flags congestion and anomalies, and generates traffic analytics reports. The model is served as a FastAPI REST API, containerized with Docker multi-stage builds, deployed on Kubernetes (Minikube), and automated with GitHub Actions CI/CD.
-=======
+
 
 ## Architecture
 
