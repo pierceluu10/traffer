@@ -1,0 +1,34 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  stream-processor:
+    build:
+      context: .
+      dockerfile: traffic/Dockerfile
+    command: python -m traffic.stream_processor --source /videos --api-url http://api:8000 --redis-url redis://redis:6379
+    volumes:
+      - ./videos:/videos
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

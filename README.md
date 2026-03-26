@@ -1,38 +1,33 @@
 # kubera
 
-End-to-end ML deployment pipeline. Fine-tuned a Faster R-CNN object detection model on Pascal VOC, served it as a FastAPI REST API, containerized with Docker multi-stage builds, deployed on Kubernetes (Minikube), and automated the full build-test-deploy cycle with GitHub Actions.
+Smart city traffic monitoring and MLOps pipeline. A Faster R-CNN object detection model powers a real-time video processing system that detects vehicles and pedestrians, flags congestion and anomalies, and generates traffic analytics reports. The model is served as a FastAPI REST API, containerized with Docker multi-stage builds, deployed on Kubernetes (Minikube), and automated with GitHub Actions CI/CD.
 
 ## Architecture
 
 ```
-                         +-------------------+
-                         |   model/train.py  |
-                         |  Fine-tune Faster |
-                         |  R-CNN on VOC     |
-                         +---------+---------+
-                                   |
-                                   v
-+----------------+       +-------------------+       +------------------+
-|  Client        | POST  |   api/main.py     |       |  mlops/          |
-|  (curl/app)    +------>+   FastAPI server   +------>+  metrics.py      |
-|                | /detect|  /health, /detect |       |  batch_inference |
-+----------------+       +--------+----------+       |  versioning.py   |
-                                  |                   +------------------+
-                                  v
-                         +-------------------+
-                         |  model/detect.py  |
-                         |  Faster R-CNN     |
-                         |  inference        |
-                         +-------------------+
++------------+       +-------------------+       +-------+       +------------------+
+| Video      | POST  |   api/main.py     |       |       |       | event_consumer   |
+| Stream     +------>+   FastAPI /detect  +------>+ Redis +------>+ Congestion alerts|
+| Processor  |       |   Faster R-CNN    |       | Queue |       | Anomaly detection|
++------------+       +-------------------+       +-------+       +--------+---------+
+                              |                                            |
+                     +--------+----------+                        +--------+---------+
+                     |  mlops/           |                        | analytics.py     |
+                     |  metrics.py       |                        | Summary reports  |
+                     |  batch_inference  |                        | traffic/report   |
+                     |  versioning.py    |                        +------------------+
+                     +-------------------+
 ```
+
+**Traffic Monitoring** -- The stream processor reads video frames, POSTs each to the detection API, filters for vehicles and pedestrians, and publishes events to a Redis queue. The consumer reads events, writes JSONL logs, and triggers congestion and anomaly alerts in real time. The analytics module generates summary reports from the event log.
 
 **Model** -- Faster R-CNN with ResNet-50 FPN backbone. Pretrained on COCO, fine-tuned on Pascal VOC (20 object classes). Model loads once at server startup, runs inference on each request.
 
 **API** -- Two endpoints. `GET /health` returns status and model version. `POST /detect` accepts an image file, runs inference, returns bounding boxes with labels and confidence scores.
 
-**MLOps Utilities** -- Three standalone modules. `metrics.py` computes IoU, precision, and latency benchmarks. `batch_inference.py` processes image directories and outputs JSON reports. `versioning.py` manages a file-based model registry with registration, rollback, and version listing.
+**MLOps** -- Three standalone modules. `metrics.py` computes IoU, precision, and latency benchmarks. `batch_inference.py` processes image directories and outputs JSON reports. `versioning.py` manages a file-based model registry with registration, rollback, and version listing.
 
-**Infrastructure** -- Multi-stage Docker builds for smaller images. Kubernetes Deployment with 2 replicas, health probes, and resource limits. GitHub Actions pipeline running tests, building the image, and deploying to Minikube.
+**Infrastructure** -- Multi-stage Docker builds for smaller images. Kubernetes Deployment with 2 replicas, health probes, and resource limits. Docker Compose for the full traffic stack (API + Redis + stream processor). GitHub Actions pipeline running tests, building the image, and deploying to Minikube.
 
 ## Tech Stack
 
@@ -43,6 +38,7 @@ End-to-end ML deployment pipeline. Fine-tuned a Faster R-CNN object detection mo
 - Docker (multi-stage builds)
 - Kubernetes / Minikube
 - OpenCV 4.9 (real-time webcam detection)
+- Redis (event queue for traffic pipeline)
 - GitHub Actions
 
 ## Docker Image Optimization
@@ -85,6 +81,20 @@ python webcam.py
 Opens your webcam and runs Faster R-CNN inference on each frame. Detected objects get bounding boxes with labels and confidence scores drawn in real time. Press `q` to quit.
 
 The first frame takes a few seconds while the model loads. After that, inference runs continuously. Works with any USB or built-in webcam.
+
+## Traffic Monitoring
+
+Real-time video stream processing with congestion detection and anomaly alerts.
+
+The stream processor reads video frames, POSTs each to the `/detect` endpoint, and filters for vehicles and pedestrians. Results are published to a Redis queue. A consumer reads the queue, writes events to JSONL, and triggers alerts when vehicle counts exceed a threshold for consecutive frames or detections appear anomalous (low confidence or oversized bounding boxes). The analytics module generates summary reports from the event log.
+
+```bash
+# Run with Docker Compose (place video files in ./videos/)
+docker compose up
+
+# Run analytics on collected events
+python -m traffic.analytics
+```
 
 ## Build and Run with Docker
 
@@ -152,13 +162,21 @@ kubera/
 │   ├── test_model.py
 │   ├── test_metrics.py
 │   ├── test_batch.py
-│   └── test_versioning.py
+│   ├── test_versioning.py
+│   └── test_traffic.py
+├── traffic/
+│   ├── stream_processor.py    # Video → API → Redis producer
+│   ├── event_consumer.py      # Redis → JSONL consumer + alerts
+│   ├── analytics.py           # Summary report generation
+│   └── Dockerfile             # Lightweight image for traffic services
 ├── k8s/
 │   ├── deployment.yaml
-│   └── service.yaml
+│   ├── service.yaml
+│   └── traffic-deployment.yaml
 ├── .github/workflows/
 │   └── ci-cd.yaml
 ├── webcam.py                  # Real-time webcam object detection
+├── docker-compose.yaml        # API + Redis + stream processor
 ├── Dockerfile
 ├── requirements.txt
 └── setup.cfg
@@ -166,17 +184,21 @@ kubera/
 
 ## Test Coverage
 
-42 tests across 5 test files. 96% coverage with `model/train.py` excluded (CLI training script, requires dataset).
+58 tests across 6 test files. Core modules (api, model, mlops) hold 96% coverage with `model/train.py` excluded. Traffic module tests cover all detection logic (congestion, anomaly, filtering, analytics).
 
 ```
-Name                       Stmts   Miss  Cover
------------------------------------------------
-api/main.py                   21      0   100%
-api/schemas.py                15      0   100%
-mlops/batch_inference.py      27      2    93%
-mlops/metrics.py              29      0   100%
-mlops/versioning.py           40      0   100%
-model/detect.py               20      4    80%
------------------------------------------------
-TOTAL                        152      6    96%
+Name                          Stmts   Miss  Cover
+---------------------------------------------------
+api/main.py                      21      0   100%
+api/schemas.py                   15      0   100%
+mlops/batch_inference.py         27      2    93%
+mlops/metrics.py                 29      0   100%
+mlops/versioning.py              40      0   100%
+model/detect.py                  20      4    80%
+traffic/analytics.py             45     12    73%
+traffic/event_consumer.py        48     26    46%
+traffic/stream_processor.py      73     53    27%
+---------------------------------------------------
 ```
+
+Traffic modules have lower coverage because the I/O paths (Redis, HTTP, video capture) are integration-tested via Docker Compose, not unit tests. The pure logic functions (filtering, congestion detection, anomaly detection, report generation) are fully tested.

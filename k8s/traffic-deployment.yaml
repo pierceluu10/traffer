@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+spec:
+  selector:
+    app: redis
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-stream-processor
+  labels:
+    app: traffic-stream-processor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-stream-processor
+  template:
+    metadata:
+      labels:
+        app: traffic-stream-processor
+    spec:
+      containers:
+        - name: stream-processor
+          image: kubera-traffic:latest
+          imagePullPolicy: Never
+          command: ["python", "-m", "traffic.stream_processor"]
+          args:
+            - "--source"
+            - "/videos"
+            - "--api-url"
+            - "http://kubera-service"
+            - "--redis-url"
+            - "redis://redis-service:6379"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-event-consumer
+  labels:
+    app: traffic-event-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-event-consumer
+  template:
+    metadata:
+      labels:
+        app: traffic-event-consumer
+    spec:
+      containers:
+        - name: event-consumer
+          image: kubera-traffic:latest
+          imagePullPolicy: Never
+          command: ["python", "-m", "traffic.event_consumer"]
+          args:
+            - "--redis-url"
+            - "redis://redis-service:6379"
+            - "--output"
+            - "/data/events.jsonl"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+      volumes:
+        - name: data
+          emptyDir: {}
